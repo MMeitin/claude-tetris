@@ -1,0 +1,85 @@
+name: Claude Issue Triage
+
+on:
+  issues:
+    types: [opened, edited]
+
+concurrency:
+  group: issue-triage-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  triage:
+    if: |
+      github.event.issue.pull_request == null &&
+      !contains(github.event.issue.labels.*.name, 'no-triage')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Issue Triage
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: '--allowedTools "Bash(gh issue view:*),Bash(gh issue edit:*),Bash(gh issue comment:*),Bash(gh label list:*),Bash(gh label create:*),Bash(gh api:*),Read,Grep,Glob"'
+          prompt: |
+            Eres un asistente de triaje de issues para este repositorio (un Tetris en JavaScript vainilla).
+            Tu tarea es analizar el issue #${{ github.event.issue.number }}, asignarle labels apropiados
+            y publicar un diagnóstico técnico en español. NO modifiques código ni abras pull requests.
+
+            Pasos a seguir:
+
+            1. Lee el issue completo:
+               gh issue view ${{ github.event.issue.number }} --json title,body,labels,comments
+
+            2. Explora el código relevante del repositorio (sobre todo `game.js`, y usa `CLAUDE.md` como
+               mapa de arquitectura) para fundamentar tu diagnóstico en el código real. Cita referencias
+               concretas tipo `game.js:123` y nombres de funciones (`collide`, `tryRotate`, `lockPiece`,
+               `clearLines`, `draw`, `loop`, etc.) cuando sean relevantes al issue.
+
+            3. Labels:
+               - Lista las labels existentes: gh label list
+               - Elige las que apliquen (tipo: bug/enhancement/documentation/question; y otras si aplica).
+               - Si ninguna existente encaja bien, crea una nueva SOLO si es realmente necesario, con
+                 convención `area:*`, `priority:*` o `complexity:*` en kebab-case, usando
+                 `gh label create <nombre> --description "..." --color <hex>`.
+               - Aplica las labels elegidas con:
+                 gh issue edit ${{ github.event.issue.number }} --add-label "label1,label2"
+               - No quites labels que ya haya puesto una persona.
+
+            4. Diagnóstico: primero revisa si ya existe un comentario tuyo anterior en este issue buscando
+               uno cuyo cuerpo empiece con el marcador `<!-- claude-issue-triage -->`:
+               gh api repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments
+               - Si existe, actualízalo (no crees uno nuevo) con:
+                 gh api --method PATCH repos/${{ github.repository }}/issues/comments/<id> -f body='<nuevo contenido>'
+               - Si no existe, créalo con:
+                 gh issue comment ${{ github.event.issue.number }} --body '<contenido>'
+
+               El contenido del comentario debe estar en español, empezar exactamente con la línea
+               `<!-- claude-issue-triage -->` y seguir esta estructura:
+
+               ## Diagnóstico automático
+
+               **Resumen del problema:** (1-2 frases)
+
+               **Tipo:** (bug / mejora / duda / documentación) — **Severidad:** (baja/media/alta)
+
+               **Análisis técnico:** qué parte de game.js está implicada, con referencias archivo:línea
+               y nombres de funciones.
+
+               **Causa probable** (si es un bug) o **Enfoque propuesto** (si es una mejora).
+
+               **Archivos a tocar** y **pasos de implementación** sugeridos, para que sirvan de base a
+               quien luego implemente la solución.
+
+               **Información que falta** (si el issue es ambiguo: pasos de reproducción, navegador, etc.)
+               — omite esta sección si no aplica.
+
+               Al final añade en cursiva: "_Análisis generado automáticamente por Claude._"
