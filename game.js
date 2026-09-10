@@ -26,7 +26,106 @@ const PIECES = [
   [[0,0,7],[7,7,7],[0,0,0]],                  // L
 ];
 
+const PASTEL_COLORS = [
+  null,
+  '#a8e6ea', // I
+  '#fff3b0', // O
+  '#d8b4e2', // T
+  '#b8e0bb', // S
+  '#f4b8b8', // Z
+  '#b8d4f4', // J
+  '#f6d3ab', // L
+];
+
 const LINE_SCORES = [0, 100, 300, 500, 800];
+
+const SKINS = {
+  retro: {
+    colors: COLORS,
+    gridColor: null, // use theme grid color
+    background: null,
+    drawBlock(context, x, y, colorIndex, size, alpha) {
+      const color = this.colors[colorIndex];
+      context.globalAlpha = alpha ?? 1;
+      context.fillStyle = color;
+      context.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
+      context.fillStyle = blockHighlight;
+      context.fillRect(x * size + 1, y * size + 1, size - 2, 4);
+      context.globalAlpha = 1;
+    },
+  },
+  neon: {
+    colors: COLORS,
+    gridColor: '#1a1a2a',
+    background: '#050508',
+    drawBlock(context, x, y, colorIndex, size, alpha) {
+      const color = this.colors[colorIndex];
+      context.globalAlpha = alpha ?? 1;
+      context.shadowBlur = 12;
+      context.shadowColor = color;
+      context.fillStyle = color;
+      context.fillRect(x * size + 2, y * size + 2, size - 4, size - 4);
+      context.shadowBlur = 0;
+      context.strokeStyle = color;
+      context.lineWidth = 1;
+      context.strokeRect(x * size + 1.5, y * size + 1.5, size - 3, size - 3);
+      context.globalAlpha = 1;
+    },
+  },
+  pastel: {
+    colors: PASTEL_COLORS,
+    gridColor: null,
+    background: null,
+    drawBlock(context, x, y, colorIndex, size, alpha) {
+      const color = this.colors[colorIndex];
+      context.globalAlpha = alpha ?? 1;
+      context.fillStyle = color;
+      const px = x * size + 1;
+      const py = y * size + 1;
+      const s = size - 2;
+      const radius = Math.min(6, s / 3);
+      if (typeof context.roundRect === 'function') {
+        context.beginPath();
+        context.roundRect(px, py, s, s, radius);
+        context.fill();
+      } else {
+        context.fillRect(px, py, s, s);
+      }
+      context.fillStyle = blockHighlight;
+      context.fillRect(px, py, s, 4);
+      context.globalAlpha = 1;
+    },
+  },
+  pixel: {
+    colors: COLORS,
+    gridColor: null,
+    background: null,
+    drawBlock(context, x, y, colorIndex, size, alpha) {
+      const color = this.colors[colorIndex];
+      context.globalAlpha = alpha ?? 1;
+      const px = x * size + 1;
+      const py = y * size + 1;
+      const s = size - 2;
+      context.fillStyle = color;
+      context.fillRect(px, py, s, s);
+      // texture: dither pattern of lighter/darker sub-blocks
+      const sub = Math.max(4, Math.floor(s / 4));
+      for (let ry = 0; ry * sub < s; ry++) {
+        for (let rx = 0; rx * sub < s; rx++) {
+          const dark = (rx + ry) % 2 === 0;
+          context.fillStyle = dark ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)';
+          const w = Math.min(sub, s - rx * sub);
+          const h = Math.min(sub, s - ry * sub);
+          context.fillRect(px + rx * sub, py + ry * sub, w, h);
+        }
+      }
+      context.strokeStyle = 'rgba(0,0,0,0.35)';
+      context.lineWidth = 1;
+      context.strokeRect(px + 0.5, py + 0.5, s - 1, s - 1);
+      context.globalAlpha = 1;
+    },
+  },
+};
 
 const canvas = document.getElementById('board');
 const ctx = canvas.getContext('2d');
@@ -40,15 +139,18 @@ const overlayTitle = document.getElementById('overlay-title');
 const overlayScore = document.getElementById('overlay-score');
 const restartBtn = document.getElementById('restart-btn');
 const themeToggle = document.getElementById('theme-toggle');
+const skinSelect = document.getElementById('skin-select');
 
 let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId;
 let gridColor, blockHighlight;
+let activeSkin = SKINS.retro;
 
 const THEME_KEY = 'tetris-theme';
+const SKIN_KEY = 'tetris-skin';
 
 function readThemeVars() {
   const styles = getComputedStyle(document.body);
-  gridColor = styles.getPropertyValue('--grid-color').trim();
+  gridColor = activeSkin.gridColor || styles.getPropertyValue('--grid-color').trim();
   blockHighlight = styles.getPropertyValue('--block-highlight').trim();
 }
 
@@ -70,6 +172,27 @@ function initTheme() {
 
 themeToggle.addEventListener('change', () => {
   setTheme(themeToggle.checked ? 'light' : 'dark', true);
+});
+
+function setSkin(skin, redraw) {
+  const name = SKINS[skin] ? skin : 'retro';
+  activeSkin = SKINS[name];
+  localStorage.setItem(SKIN_KEY, name);
+  skinSelect.value = name;
+  readThemeVars();
+  if (redraw) {
+    draw();
+    drawNext();
+  }
+}
+
+function initSkin() {
+  const saved = localStorage.getItem(SKIN_KEY);
+  setSkin(SKINS[saved] ? saved : 'retro', false);
+}
+
+skinSelect.addEventListener('change', () => {
+  setSkin(skinSelect.value, true);
 });
 
 function createBoard() {
@@ -188,14 +311,8 @@ function updateHUD() {
 
 function drawBlock(context, x, y, colorIndex, size, alpha) {
   if (!colorIndex) return;
-  const color = COLORS[colorIndex];
-  context.globalAlpha = alpha ?? 1;
-  context.fillStyle = color;
-  context.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
-  // highlight
-  context.fillStyle = blockHighlight;
-  context.fillRect(x * size + 1, y * size + 1, size - 2, 4);
-  context.globalAlpha = 1;
+  activeSkin.drawBlock(context, x, y, colorIndex, size, alpha);
+  context.shadowBlur = 0;
 }
 
 function drawGrid() {
@@ -217,6 +334,10 @@ function drawGrid() {
 
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (activeSkin.background) {
+    ctx.fillStyle = activeSkin.background;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
   drawGrid();
 
   // board
@@ -240,6 +361,10 @@ function draw() {
 function drawNext() {
   const NB = 30;
   nextCtx.clearRect(0, 0, nextCanvas.width, nextCanvas.height);
+  if (activeSkin.background) {
+    nextCtx.fillStyle = activeSkin.background;
+    nextCtx.fillRect(0, 0, nextCanvas.width, nextCanvas.height);
+  }
   const shape = next.shape;
   const offX = Math.floor((4 - shape[0].length) / 2);
   const offY = Math.floor((4 - shape.length) / 2);
@@ -332,5 +457,6 @@ document.addEventListener('keydown', e => {
 
 restartBtn.addEventListener('click', init);
 
+initSkin();
 initTheme();
 init();
