@@ -26,6 +26,11 @@
           <span class="value" id="level">1</span>
         </div>
 
+        <div class="panel-section">
+          <span class="label">COMBO</span>
+          <span class="value" id="combo">0</span>
+        </div>
+
         <div class="panel-section theme-toggle-section">
           <span class="label">TEMA</span>
           <label class="theme-switch">
@@ -56,7 +61,21 @@
       <div class="overlay-box">
         <p id="overlay-title">GAME OVER</p>
         <p id="overlay-score"></p>
-        <button id="restart-btn">Reiniciar</button>
+
+        <div id="name-entry" class="name-entry hidden">
+          <input type="text" id="player-name" maxlength="12" placeholder="Tu nombre" autocomplete="off" />
+          <button id="save-score-btn">Guardar</button>
+        </div>
+
+        <div id="highscore-panel" class="highscore-panel">
+          <span class="label">RECORDS</span>
+          <ol id="highscore-list" class="highscore-list"></ol>
+          <p id="best-stats" class="best-stats"></p>
+          <button id="reset-scores-btn">Resetear records</button>
+        </div>
+
+        <button id="restart-btn" class="hidden">Reiniciar</button>
+        <button id="start-btn">Jugar</button>
       </div>
     </div>
   </div>
